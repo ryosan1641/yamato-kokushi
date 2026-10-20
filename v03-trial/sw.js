@@ -1,16 +1,7 @@
 'use strict';
 const PREFIX='yamato-kokushi-v03-trial-'+encodeURIComponent(new URL(self.registration.scope).pathname)+'-';
-const CACHE=PREFIX+'apple-ledger-'+'2c15ad3178';
-const FILES=['./index.html','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
+const BUILD="12562e453bf2b8",CACHE=PREFIX+'final-'+BUILD,FILES=["./index.html", "./quiz-core.js", "./app.js", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith(PREFIX)&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
-self.addEventListener('fetch',event=>{
- const req=event.request;if(req.method!=='GET')return;
- const u=new URL(req.url),scope=new URL(self.registration.scope);
- if(u.origin!==scope.origin||!u.pathname.startsWith(scope.pathname))return;
- const relative=u.pathname.slice(scope.pathname.length);
- const isIndex=relative===''||relative==='index.html';
- if(!isIndex&&!['manifest.webmanifest','icon-192.png','icon-512.png'].includes(relative))return;
- const key=isIndex?new URL('index.html',scope).href:req.url;
- event.respondWith(caches.open(CACHE).then(cache=>cache.match(key)).then(hit=>hit||fetch(req)));
-});
+self.addEventListener('fetch',event=>{const req=event.request;if(req.method!=='GET')return;const u=new URL(req.url),scope=new URL(self.registration.scope);if(u.origin!==scope.origin||!u.pathname.startsWith(scope.pathname))return;const rel=u.pathname.slice(scope.pathname.length);if(rel!==''&&!FILES.includes('./'+rel))return;const key=rel===''||rel==='index.html'?new URL('index.html',scope).href:u.origin+u.pathname;event.respondWith(caches.open(CACHE).then(cache=>cache.match(key)).then(hit=>hit||fetch(req)));});
+self.addEventListener('message',event=>{if(event.data?.type==='CACHE_STATUS')event.waitUntil(caches.open(CACHE).then(async cache=>{const hits=await Promise.all(FILES.map(f=>cache.match(f)));event.ports[0]?.postMessage({ready:hits.every(Boolean),build:BUILD});}));});
