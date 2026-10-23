@@ -1,7 +1,7 @@
 'use strict';
 // Network-first for app files; offline cache fallback. Does not modify study records.
 const PREFIX='yamato-kokushi-v03-trial-'+encodeURIComponent(new URL(self.registration.scope).pathname)+'-';
-const BUILD='wa-modern-network-first-20261023-3';
+const BUILD='wa-modern-weakness-20261023-4';
 const CACHE=PREFIX+'final-'+BUILD;
 const FILES=['./index.html','./quiz-core.js','./app.js','./preferences.js','./wamodern-ui.js','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting())));
