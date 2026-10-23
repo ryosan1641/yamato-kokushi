@@ -5,7 +5,7 @@ function eligible(q,mode='textbook'){const ok=q.scorable===true&&q.scoring_statu
 function grade(q,choice){if(!eligible(q))return null;if(!Number.isInteger(choice)||choice<1||choice>4)throw Error('1〜4の回答を選んでください。');return q.accepted_answers.includes(choice);}
 function uid(r){return r.record_uid||[r.session||r.session_id,r.id||r.question_id,r.at||r.answered_at].join('|');}
 function normalize(r,test=false){
- if(!r||!/^\w+-\d{3}$/.test(r.id||'')||!Number.isInteger(r.selected)||r.selected<1||r.selected>4||typeof r.correct!=='boolean'||!Number.isFinite(Date.parse(r.at))||typeof r.session!=='string'||r.session.length>200)return null;
+ if(!r||!/^[A-Za-z][A-Za-z0-9]*(?:-\d{2})?-\d{3}$/.test(r.id||'')||!Number.isInteger(r.selected)||r.selected<1||r.selected>4||typeof r.correct!=='boolean'||!Number.isFinite(Date.parse(r.at))||typeof r.session!=='string'||r.session.length>200)return null;
  return {...clone(r),record_uid:uid(r),is_test:test,attempt_type:['initial','retest'].includes(r.attempt_type)?r.attempt_type:'legacy',original_correct:typeof r.original_correct==='boolean'?r.original_correct:r.correct};
 }
 function mergeHistory(a,b){const out=new Map();for(const r of [...a,...b])if(r)out.set(uid(r),r);return [...out.values()].sort((a,b)=>Date.parse(a.at)-Date.parse(b.at)||uid(a).localeCompare(uid(b)));}
@@ -20,7 +20,7 @@ function parseBackup(x,test=false){
  for(const r of x.history){const n=r?.is_test===true&&!test?null:normalize(r,test);if(n)out.history.push(n);else out.invalid_records.push(clone(r));}
  out.history=mergeHistory([],out.history);
  if(x.schema===LEGACY_KEY)out.legacy_snapshots.push(clone(x));
- const a=x.active;out.active=x.version===2&&a&&typeof a.id==='string'&&Array.isArray(a.ids)&&a.ids.length<=550&&a.ids.every(s=>typeof s==='string')&&Number.isInteger(a.index)&&a.index>=0&&a.index<a.ids.length&&['question','answer'].includes(a.phase)&&['read','official','textbook'].includes(a.mode)&&Array.isArray(a.results)?clone(a):null;
+ const a=x.active;out.active=x.version===2&&a&&typeof a.id==='string'&&Array.isArray(a.ids)&&a.ids.length<=10000&&a.ids.every(s=>typeof s==='string')&&Number.isInteger(a.index)&&a.index>=0&&a.index<a.ids.length&&['question','answer'].includes(a.phase)&&['read','official','textbook'].includes(a.mode)&&Array.isArray(a.results)?clone(a):null;
  return out;
 }
 function mergeState(a,b){const out=clone(a);out.history=mergeHistory(a.history,b.history);const m=new Map();for(const s of [...a.sessions,...b.sessions])if(s&&typeof s.id==='string')m.set(s.id,s);out.sessions=[...m.values()];for(const k of ['legacy_snapshots','invalid_records']){const seen=new Set();out[k]=[...a[k],...b[k]].filter(x=>{const k=JSON.stringify(x);if(seen.has(k))return false;seen.add(k);return true;});}out.active=b.active;return out;}
