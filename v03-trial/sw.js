@@ -1,6 +1,6 @@
 'use strict';
 const PREFIX='yamato-kokushi-v03-trial-'+encodeURIComponent(new URL(self.registration.scope).pathname)+'-';
-const BUILD="weakness83-20261023-2-historyfix",CACHE=PREFIX+'final-'+BUILD,FILES=["./index.html", "./quiz-core.js", "./app.js", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
+const BUILD="ledger-time-choice-20261023-wamodern-icon-final-4",CACHE=PREFIX+'final-'+BUILD,FILES=["./index.html", "./quiz-core.js", "./app.js","./preferences.js", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith(PREFIX)&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{const req=event.request;if(req.method!=='GET')return;const u=new URL(req.url),scope=new URL(self.registration.scope);if(u.origin!==scope.origin||!u.pathname.startsWith(scope.pathname))return;const rel=u.pathname.slice(scope.pathname.length);if(rel!==''&&!FILES.includes('./'+rel))return;const key=rel===''||rel==='index.html'?new URL('index.html',scope).href:u.origin+u.pathname;event.respondWith(caches.open(CACHE).then(cache=>cache.match(key)).then(hit=>hit||fetch(req)));});
