@@ -43,9 +43,81 @@ function weakRender(){const a=weakness(),studied=a.filter(x=>x.attempts),checks=
 function startChecks(){if(active){notify('途中の学習を終了してから要チェック復習を開始してください。');return;}const ids=C.shuffle(weakness().filter(x=>x.wrong>=3&&C.eligible(x.q)).map(x=>x.q.id));if(!ids.length)return;const id=Date.now().toString(36)+'-check';active={id,mode:'textbook',attempt_type:'retest',ids,index:0,phase:'question',selected:null,results:[],started_at:new Date().toISOString(),last_activity_at:Date.now(),accounted_idle_ms:0,elapsed_ms:0};context.state.sessions.push({id,attempt_type:'retest',mode:'textbook',started_at:active.started_at,completed:false,is_test:context.state.is_test});persist();screen('quiz');render();}
 function update(){const rows=C.pool(Q,selections());$('available').textContent=rows.length+'問';$('official-count').textContent=Q.filter(q=>C.eligible(q)).length;$('held-count').textContent=Q.filter(q=>!C.eligible(q)).length;$('history-count').textContent=context.state.history.length;$('wrong-count').textContent=C.pool(Q,{history:context.state.history,wrong:true,includeTests:context.state.is_test}).length;$('start').disabled=!rows.length;$('wrong-start').disabled=$('mode').value==='read'||!C.pool(Q,selections(true)).length;$('mode-note').textContent=$('mode').value==='official'?'公式正答を確認し、現在も採点対象の問題です。':$('mode').value==='textbook'?'公式正答・教材根拠を確認した採点対象の問題です。保留問題は含みません。':'正答を確定できない問題を、採点せずに確認します。';$('test-indicator').hidden=!context.state.is_test;$('resume-study').hidden=!active||active.index>=active.ids.length;stats();studyStats();weakRender();}
 function source(q){const d=el('details');d.append(el('summary','出典・採点根拠'));d.append(el('p',q.source));d.append(el('p',q.answer_verification_level+' / '+q.scoring_status));if(q.final_note)d.append(el('p',q.final_note));if(!q.explanation_verified)d.append(el('p','解説は参考表示です。4肢すべての解説の独立本文検証は未完です。','caution'));for(const e of (q.evidence||[]).slice(0,5)){const p=el('p',e.title+' · '+(e.location||''));if(/^https:\/\//.test(e.url||'')){const a=el('a',' 資料');a.href=e.url;a.target='_blank';a.rel='noopener noreferrer';p.append(a);}d.append(p);}return d;}
-function render(){if(!active)return;timeTick();if(!active)return;const q=qmap.get(active.ids[active.index]);if(!q){notify('旧版の問題を再開できません。保存した回答は残っています。');screen('home');return;}const done=active.phase==='answer';$('position').textContent=(context.state.is_test?'動作確認 · ':'')+(active.index+1)+' / '+active.ids.length+' · '+(active.attempt_type==='retest'?'再テスト':'初回演習');$('bar').style.width=((active.index+1)/active.ids.length*100)+'%';$('question-meta').textContent=q.subject+' · '+q.field+' · '+q.id;$('question').textContent=q.question;$('choices').replaceChildren();q.choices.forEach((s,i)=>{const b=el('button',undefined,'choice');b.type='button';b.append(el('span',String(i+1),'number'),el('span',s));b.setAttribute('aria-pressed',String(active.selected===i+1));if(active.selected===i+1)b.classList.add('selected');b.disabled=done||active.mode==='read';if(done&&active.mode!=='read'&&q.accepted_answers.includes(i+1))b.classList.add('correct');b.onclick=()=>commit(i+1);$('choices').append(b);});$('feedback').replaceChildren();$('feedback').hidden=!done;$('source').replaceChildren(source(q));if(done){const r=active.results.find(r=>r.id===q.id);$('feedback').append(el('h2',active.mode==='read'?'採点保留':r.correct?'正解':'不正解'));$('feedback').append(el('p',active.mode==='read'?'この問題は採点・成績集計をしません。':'正答：'+q.accepted_answers.join('・')+(q.accepted_answers.length>1?'（いずれか一つで正解）':'')));if(active.mode==='read'&&q.hold_reason)$('feedback').append(el('p',q.hold_reason,'caution'));q.choice_explanations.forEach((s,i)=>{$('feedback').append(el('p',(i+1)+'. '+q.choices[i]),el('p',s,'explanation'));});}
+function choiceOrder(q){
+ if(!active.choice_orders)active.choice_orders={};
+ let order=active.choice_orders[q.id];
+ if(!Array.isArray(order)||order.length!==q.choices.length||new Set(order).size!==order.length||order.some(n=>!Number.isInteger(n)||n<1||n>q.choices.length)){
+  order=C.shuffle(q.choices.map((_,i)=>i+1));active.choice_orders[q.id]=order;persist();
+ }
+ return order;
+}
+function explanationPanel(q,r,order){
+ const root=document.createDocumentFragment();
+ const correct=(q.accepted_answers||[]).map(n=>q.choices[n-1]).filter(Boolean);
+ root.append(el('p','正解：'+correct.join('／')+(correct.length>1?'（いずれか一つで正解）':'')));
+ const learning=q.learning_explanation;
+ if(learning?.verified===true){
+  if(learning.key_point)root.append(el('p','覚える要点：'+learning.key_point));
+  if(learning.why_correct)root.append(el('p','決め手：'+learning.why_correct));
+ }else{
+  const n=q.accepted_answers?.[0];
+  if(Number.isInteger(n)&&q.choice_explanations?.[n-1])root.append(el('p','正解の根拠：'+q.choice_explanations[n-1],'explanation'));
+ }
+ if(r?.correct===false&&Number.isInteger(r.selected)){
+  root.append(el('p','今回選んだ選択肢：'+(q.choices[r.selected-1]||'（不明）')));
+  if(q.choice_explanations?.[r.selected-1])root.append(el('p','その選択肢の解説：'+q.choice_explanations[r.selected-1],'explanation'));
+ }
+ const previous=context.state.history.filter(h=>h.id===q.id&&h.correct===false&&!h.is_test&&Number.isInteger(h.selected));
+ if(previous.length){
+  const counts=new Map();for(const h of previous)counts.set(h.selected,(counts.get(h.selected)||0)+1);
+  const [most,n]=[...counts].sort((a,b)=>b[1]-a[1])[0];
+  root.append(el('p','これまでの誤答：'+previous.length+'回'+(n>=2?'／「'+(q.choices[most-1]||'')+'」を'+n+'回選択':'')));
+ }
+ if(learning?.verified===true){
+  if(learning.distinction)root.append(el('p','見分け方：'+learning.distinction));
+  if(learning.recall_prompt)root.append(el('p','次回の確認：'+learning.recall_prompt));
+ }
+ const details=el('details');details.append(el('summary','全選択肢の解説を見る'));
+ for(const original of order){
+  const displayed=order.indexOf(original)+1;
+  details.append(el('p',displayed+'. '+q.choices[original-1]));
+  if(q.choice_explanations?.[original-1])details.append(el('p',q.choice_explanations[original-1],'explanation'));
+ }
+ root.append(details);
+ return root;
+}
+function render(){
+ if(!active)return;timeTick();if(!active)return;
+ const q=qmap.get(active.ids[active.index]);
+ if(!q){notify('旧版の問題を再開できません。保存した回答は残っています。');screen('home');return;}
+ const order=choiceOrder(q),done=active.phase==='answer';
+ $('position').textContent=(context.state.is_test?'動作確認 · ':'')+(active.index+1)+' / '+active.ids.length+' · '+(active.attempt_type==='retest'?'再テスト':'初回演習');
+ $('bar').style.width=((active.index+1)/active.ids.length*100)+'%';
+ $('question-meta').textContent=q.subject+' · '+q.field+' · '+q.id;
+ $('question').textContent=q.question;$('choices').replaceChildren();
+ order.forEach((original,i)=>{
+  const b=el('button',undefined,'choice');b.type='button';
+  b.append(el('span',String(i+1),'number'),el('span',q.choices[original-1]));
+  b.setAttribute('aria-pressed',String(active.selected===original));
+  if(active.selected===original)b.classList.add('selected');
+  b.disabled=done||active.mode==='read';
+  if(done&&active.mode!=='read'&&q.accepted_answers.includes(original))b.classList.add('correct');
+  b.onclick=()=>commit(original);$('choices').append(b);
+ });
+ $('feedback').replaceChildren();$('feedback').hidden=!done;
+ $('source').replaceChildren(source(q));
+ if(done){
+  const r=active.results.find(r=>r.id===q.id);
+  $('feedback').append(el('h2',active.mode==='read'?'採点保留':r?.correct?'正解':'不正解'));
+  if(active.mode==='read')$('feedback').append(el('p','この問題は採点・成績集計をしません。'));
+  if(active.mode==='read'&&q.hold_reason)$('feedback').append(el('p',q.hold_reason,'caution'));
+  $('feedback').append(explanationPanel(q,r,order));
+ }
  if(done&&!q.explanation_verified)$('feedback').append(el('p','解説は参考表示です。4肢すべての解説の独立本文検証は未完です。','caution'));
- $('next').disabled=!done&&active.mode!=='read';$('next').textContent=done?(active.index+1===active.ids.length?'結果を見る':'次の問題へ'):'解説を見る';$('quiz-hint').textContent=active.mode==='read'?'この問題は採点しません。':done?'全選択肢の解説を確認して進んでください。':'選択肢を一つタップすると自動採点します。';}
+ $('next').disabled=!done&&active.mode!=='read';
+ $('next').textContent=done?(active.index+1===active.ids.length?'結果を見る':'次の問題へ'):'解説を見る';
+ $('quiz-hint').textContent=active.mode==='read'?'この問題は採点しません。':done?'要点を確認し、必要なら詳細解説を開いてください。':'選択肢を一つタップすると自動採点します。';
+}
 function begin(wrong){const rows=C.pool(Q,selections(wrong));if(!rows.length)return;const n=$('count').value==='all'?rows.length:Math.min(Number($('count').value),rows.length),id=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);active={id,mode:$('mode').value,attempt_type:wrong?'retest':'initial',ids:(wrong||$('mode').value==='read'?C.shuffle(rows).slice(0,n):C.balancedSelect(rows,context.state.history,n,context.state.is_test)).map(q=>q.id),index:0,phase:'question',selected:null,results:[],started_at:new Date().toISOString(),last_activity_at:Date.now(),accounted_idle_ms:0,elapsed_ms:0};context.state.sessions.push({id,attempt_type:active.attempt_type,mode:active.mode,started_at:active.started_at,completed:false,is_test:context.state.is_test});persist();screen('quiz');render();}
 function commit(choice){activity();if(!active||active.phase!=='question')return;const q=qmap.get(active.ids[active.index]),read=active.mode==='read';if(!read&&!C.eligible(q)){notify('採点状態が変わったため、この問題を採点しません。');active.mode='read';return commit(null);}active.selected=choice;const r={record_uid:active.id+'|'+q.id+'|'+active.index,id:q.id,selected:choice,correct:read?null:C.grade(q,choice),at:new Date().toISOString(),session:active.id,basis:q.official_answer_verified?'official':'textbook',attempt_type:active.attempt_type,is_test:context.state.is_test,data_revision:D.data_revision};active.results.push(r);if(!read)C.commit(context.state,r);active.phase='answer';persist();render();update();}
 function next(){activity();if(!active)return;if(active.phase==='question'){if(active.mode==='read')commit(null);return;}if(active.index+1<active.ids.length){active.index++;active.phase='question';active.selected=null;persist();render();window.scrollTo(0,0);}else finish();}
