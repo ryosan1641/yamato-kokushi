@@ -1,6 +1,7 @@
 (()=>{'use strict';
+const style=document.createElement('style');style.textContent='\n.yamato-learning{display:grid;gap:12px;margin-top:12px;line-height:1.65}.yamato-key{background:#e9f3ed;border-left:4px solid #28654e;border-radius:10px;padding:14px 16px}.yamato-key strong,.yamato-mistake strong{font-size:1.08em}.yamato-key p,.yamato-mistake p{margin:8px 0 0}.yamato-mistake{background:#fff2e6;border-left:4px solid #a9692e;border-radius:10px;padding:14px 16px}.yamato-history{font-size:.91em;color:#5a615e;margin:0}.yamato-recall{border-top:1px solid #d8dfda;padding-top:12px;font-weight:600;margin:0}.yamato-allchoices{border:1px solid #cbd5ce;border-radius:10px;padding:12px}.yamato-allchoices summary{cursor:pointer;font-weight:600}.yamato-allchoices p{margin:12px 0 4px}.yamato-allchoices .explanation{margin:0 0 12px;color:#58635c;font-size:.94em}.yamato-disclaimer{color:#776343;font-size:.8em}';document.head.append(style);
 const D=JSON.parse(document.getElementById('quiz-data').textContent),Q=D.questions,C=QuizCore,$=id=>document.getElementById(id),qmap=new Map(Q.map(q=>[q.id,q]));
-$('total-count').textContent=String(Q.length);document.documentElement.dataset.yamatoBuild='20261023-safe-4';
+$('total-count').textContent=String(Q.length);document.documentElement.dataset.yamatoBuild='20261109-explanation-2';
 let context=C.load(localStorage),active=context.state.active,finished=null;
 const PAUSE_MS=180000,END_MS=600000;let lastSaveAt=0;
 const duration=ms=>{const m=Math.floor(Math.max(0,ms)/60000);return m+"分"+String(Math.floor((Math.max(0,ms)%60000)/1000)).padStart(2,"0")+"秒";};
@@ -52,38 +53,48 @@ function choiceOrder(q){
  return order;
 }
 function explanationPanel(q,r,order){
- const root=document.createDocumentFragment();
- const correct=(q.accepted_answers||[]).map(n=>q.choices[n-1]).filter(Boolean);
- root.append(el('p','正解：'+correct.join('／')+(correct.length>1?'（いずれか一つで正解）':'')));
+ const root=el('div',undefined,'yamato-learning');
+ const answers=(q.accepted_answers||[]).filter(n=>Number.isInteger(n)&&q.choices[n-1]);
+ const correct=answers.map(n=>q.choices[n-1]);
+ const heading=el('div',undefined,'yamato-key');
+ heading.append(el('strong','覚えるポイント'));
+ heading.append(el('p',correct.length?'正解の知識：'+correct.join('／'):'正答未確定（採点保留）'));
  const learning=q.learning_explanation;
  if(learning?.verified===true){
-  if(learning.key_point)root.append(el('p','覚える要点：'+learning.key_point));
-  if(learning.why_correct)root.append(el('p','決め手：'+learning.why_correct));
- }else{
-  const n=q.accepted_answers?.[0];
-  if(Number.isInteger(n)&&q.choice_explanations?.[n-1])root.append(el('p','正解の根拠：'+q.choice_explanations[n-1],'explanation'));
+  if(learning.key_point)heading.append(el('p',learning.key_point));
+  if(learning.why_correct)heading.append(el('p','理由：'+learning.why_correct));
+ }else if(answers.length){
+  for(const n of answers){if(q.choice_explanations?.[n-1])heading.append(el('p',q.choice_explanations[n-1]));}
  }
+ root.append(heading);
  if(r?.correct===false&&Number.isInteger(r.selected)){
-  root.append(el('p','今回選んだ選択肢：'+(q.choices[r.selected-1]||'（不明）')));
-  if(q.choice_explanations?.[r.selected-1])root.append(el('p','その選択肢の解説：'+q.choice_explanations[r.selected-1],'explanation'));
+  const mistaken=el('div',undefined,'yamato-mistake');
+  mistaken.append(el('strong','今回の間違いを修正'));
+  mistaken.append(el('p','選んだ答え：'+(q.choices[r.selected-1]||'不明')));
+  if(q.choice_explanations?.[r.selected-1])mistaken.append(el('p','違い：'+q.choice_explanations[r.selected-1]));
+  root.append(mistaken);
  }
  const previous=context.state.history.filter(h=>h.id===q.id&&h.correct===false&&!h.is_test&&Number.isInteger(h.selected));
  if(previous.length){
   const counts=new Map();for(const h of previous)counts.set(h.selected,(counts.get(h.selected)||0)+1);
   const [most,n]=[...counts].sort((a,b)=>b[1]-a[1])[0];
-  root.append(el('p','これまでの誤答：'+previous.length+'回'+(n>=2?'／「'+(q.choices[most-1]||'')+'」を'+n+'回選択':'')));
+  const note=el('p','過去の誤答 '+previous.length+'回'+(n>=2?' ／ 「'+(q.choices[most-1]||'')+'」を'+n+'回選択':''),'yamato-history');
+  root.append(note);
  }
  if(learning?.verified===true){
-  if(learning.distinction)root.append(el('p','見分け方：'+learning.distinction));
-  if(learning.recall_prompt)root.append(el('p','次回の確認：'+learning.recall_prompt));
+  if(learning.distinction)root.append(el('p','見分け方：'+learning.distinction,'yamato-recall'));
+  if(learning.recall_prompt)root.append(el('p','次回の確認：'+learning.recall_prompt,'yamato-recall'));
+ }else if(answers.length){
+  root.append(el('p','次回は番号ではなく「'+correct.join('／')+'」の根拠を説明できるか確認。','yamato-recall'));
  }
- const details=el('details');details.append(el('summary','全選択肢の解説を見る'));
- for(const original of order){
-  const displayed=order.indexOf(original)+1;
-  details.append(el('p',displayed+'. '+q.choices[original-1]));
+ const details=el('details',undefined,'yamato-allchoices');details.append(el('summary','他の選択肢も確認する（必要なときだけ）'));
+ for(const [i,original] of order.entries()){
+  const p=el('p',(i+1)+'. '+q.choices[original-1]+(answers.includes(original)?' 【正答】':''));
+  details.append(p);
   if(q.choice_explanations?.[original-1])details.append(el('p',q.choice_explanations[original-1],'explanation'));
  }
  root.append(details);
+ if(!q.explanation_verified)root.append(el('small','※既存の選択肢解説は独立検証が未完です。','yamato-disclaimer'));
  return root;
 }
 function render(){
@@ -113,7 +124,7 @@ function render(){
   if(active.mode==='read'&&q.hold_reason)$('feedback').append(el('p',q.hold_reason,'caution'));
   $('feedback').append(explanationPanel(q,r,order));
  }
- if(done&&!q.explanation_verified)$('feedback').append(el('p','解説は参考表示です。4肢すべての解説の独立本文検証は未完です。','caution'));
+ 
  $('next').disabled=!done&&active.mode!=='read';
  $('next').textContent=done?(active.index+1===active.ids.length?'結果を見る':'次の問題へ'):'解説を見る';
  $('quiz-hint').textContent=active.mode==='read'?'この問題は採点しません。':done?'要点を確認し、必要なら詳細解説を開いてください。':'選択肢を一つタップすると自動採点します。';
