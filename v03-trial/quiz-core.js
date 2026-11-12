@@ -1,35 +1,54 @@
 (function(root){'use strict';
 const KEY='yamato.kokushi.v03.final.history.v2', TEST_KEY=KEY+'.test', LEGACY_KEY='yamato.kokushi.v03.trial.history.v1';
 const clone=x=>JSON.parse(JSON.stringify(x));
-function eligible(q,mode='textbook'){const ok=q.scorable===true&&q.scoring_status==='採点対象'&&Array.isArray(q.accepted_answers)&&q.accepted_answers.length>0&&q.answer_set_complete!==false;return mode==='read'?!ok:ok&&(mode!=='official'||q.official_answer_verified===true);}
+function eligible(q,mode='textbook'){const ok=q.scorable===true&&q.scoring_status==='採点対象'&&Array.isArray(q.accepted_answers)&&q.accepted_answers.length===1&&[1,2,3,4].includes(q.accepted_answers[0])&&q.answer_set_complete!==false;return mode==='read'?!ok:ok&&(mode!=='official'||q.official_answer_verified===true);}
 function grade(q,choice){if(!eligible(q))return null;if(!Number.isInteger(choice)||choice<1||choice>4)throw Error('1〜4の回答を選んでください。');return q.accepted_answers.includes(choice);}
 function uid(r){return r.record_uid||[r.session||r.session_id,r.id||r.question_id,r.at||r.answered_at].join('|');}
 function normalize(r,test=false){
  if(!r||!/^[A-Za-z][A-Za-z0-9]*(?:-\d{2})?-\d{3}$/.test(r.id||'')||!Number.isInteger(r.selected)||r.selected<1||r.selected>4||typeof r.correct!=='boolean'||!Number.isFinite(Date.parse(r.at))||typeof r.session!=='string'||r.session.length>200)return null;
  return {...clone(r),record_uid:uid(r),is_test:test,attempt_type:['initial','retest'].includes(r.attempt_type)?r.attempt_type:'legacy',original_correct:typeof r.original_correct==='boolean'?r.original_correct:r.correct};
 }
-function mergeHistory(a,b){const out=new Map();for(const r of [...a,...b])if(r)out.set(uid(r),r);return [...out.values()].sort((a,b)=>Date.parse(a.at)-Date.parse(b.at)||uid(a).localeCompare(uid(b)));}
+function mergeHistory(a,b){const out=new Map();for(const r of [...a,...b])if(r&&!out.has(uid(r)))out.set(uid(r),r);return [...out.values()].sort((a,b)=>Date.parse(a.at)-Date.parse(b.at)||uid(a).localeCompare(uid(b)));}
 function latestWrong(history,includeTests=false){const m=new Map();for(const r of [...history].sort((a,b)=>Date.parse(a.at)-Date.parse(b.at)))if((includeTests||!r.is_test)&&typeof r.correct==='boolean')m.set(r.id,r.correct);return new Set([...m].filter(([,v])=>v===false).map(([k])=>k));}
 function pool(questions,{subject='all',field='all',mode='textbook',history=[],wrong=false,includeTests=false}={}){const ids=latestWrong(history,includeTests);return questions.filter(q=>(subject==='all'||q.subject===subject)&&(field==='all'||q.field===field)&&eligible(q,mode)&&(!wrong||ids.has(q.id)));}
 function shuffle(a,random=Math.random){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
-function balancedOrder(rows,history=[],includeTests=false,random=Math.random){
- const counts=new Map(),last=new Map();
- for(const r of history){if(!r||(!includeTests&&r.is_test)||typeof r.correct!=='boolean')continue;
- counts.set(r.id,(counts.get(r.id)||0)+1);
- const time=Date.parse(r.at)||0;if(time>=(last.get(r.id)||0))last.set(r.id,time);
- }
- const wrong=latestWrong(history,includeTests),groups=[[],[],[]];
- for(const q of rows)groups[!counts.has(q.id)?0:wrong.has(q.id)?1:2].push(q);
- for(const g of groups){const randomized=shuffle(g,random);randomized.sort((a,b)=>(counts.get(a.id)||0)-(counts.get(b.id)||0)||(last.get(a.id)||0)-(last.get(b.id)||0));g.splice(0,g.length,...randomized);}
- return groups;
-}
+function choiceOrder(questionId,sessionId){const a=[1,2,3,4];let seed=2166136261;for(const c of String(sessionId)+'|'+String(questionId)){seed^=c.charCodeAt(0);seed=Math.imul(seed,16777619)>>>0;}for(let i=3;i>0;i--){seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;seed>>>=0;const j=seed%(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
 function balancedSelect(rows,history=[],n=rows.length,includeTests=false,random=Math.random){
- const groups=balancedOrder(rows,history,includeTests,random),size=Math.min(Math.max(0,n),rows.length);
- const target=[Math.round(size*.5),Math.round(size*.3),0];target[2]=size-target[0]-target[1];
- const chosen=[],used=new Set();
- for(let i=0;i<3;i++){for(let j=0;j<target[i]&&groups[i].length;j++){const q=groups[i].shift();chosen.push(q);used.add(q.id);}}
- // Fill shortages in priority order, without duplicates.
- for(const g of groups){while(chosen.length<size&&g.length){const q=g.shift();if(!used.has(q.id)){chosen.push(q);used.add(q.id);}}}
+ const byId=new Map();
+ const ordered=history.filter(r=>r&&(includeTests||!r.is_test)&&typeof r.correct==='boolean')
+  .sort((a,b)=>Date.parse(a.at)-Date.parse(b.at));
+ for(const r of ordered){
+  const stats=byId.get(r.id)||{count:0,last:0,streak:0,everWrong:false};
+  stats.count++;
+  stats.last=Date.parse(r.at)||0;
+  stats.streak=r.correct?stats.streak+1:0;
+  stats.everWrong ||= !r.correct;
+  byId.set(r.id,stats);
+ }
+ const groups=[[],[],[]];
+ for(const q of shuffle(rows,random)){
+  const stats=byId.get(q.id);
+  const group=!stats?0:stats.everWrong&&stats.streak<2?1:2;
+  groups[group].push(q);
+ }
+ for(const group of groups.slice(1)){
+  group.sort((a,b)=>{
+   const first=byId.get(a.id),second=byId.get(b.id);
+   return first.last-second.last||first.streak-second.streak||first.count-second.count;
+  });
+ }
+ const size=Math.min(Math.max(0,Math.floor(n)),rows.length);
+ const weights=[5,3,2];
+ const target=weights.map(weight=>Math.floor(size*weight/10));
+ const remainderOrder=[0,1,2].sort((a,b)=>(size*weights[b]%10)-(size*weights[a]%10));
+ const remaining=size-target.reduce((sum,value)=>sum+value,0);
+ for(const i of remainderOrder.slice(0,remaining))target[i]++;
+ const chosen=groups.flatMap((group,i)=>group.splice(0,target[i]));
+ while(chosen.length<size){
+  for(const group of groups){
+   if(group.length&&chosen.length<size)chosen.push(group.shift());
+  }
+ }
  return shuffle(chosen,random);
 }
 function empty(test=false){return {schema:KEY,version:2,is_test:test,history:[],sessions:[],active:null,legacy_snapshots:[],invalid_records:[]};}
@@ -45,12 +64,16 @@ function parseBackup(x,test=false){
 }
 function mergeState(a,b){const out=clone(a);out.history=mergeHistory(a.history,b.history);const m=new Map();for(const s of [...a.sessions,...b.sessions])if(s&&typeof s.id==='string')m.set(s.id,s);out.sessions=[...m.values()];for(const k of ['legacy_snapshots','invalid_records']){const seen=new Set();out[k]=[...a[k],...b[k]].filter(x=>{const k=JSON.stringify(x);if(seen.has(k))return false;seen.add(k);return true;});}out.active=b.active;return out;}
 function load(storage,test=false){const key=test?TEST_KEY:KEY;let state=empty(test),warning='',writable=true;try{const raw=storage.getItem(key);if(raw)state=parseBackup(JSON.parse(raw),test);else if(storage.getItem(key+'.safety-copy'))state=parseBackup(JSON.parse(storage.getItem(key+'.safety-copy')),test);else if(!test){const legacy=storage.getItem(LEGACY_KEY);if(legacy)state=parseBackup(JSON.parse(legacy),false);}}catch(e){warning='既存の保存内容を読み込めません。元の記録は上書きしません。バックアップを保存してください。';writable=false;}return {state,warning,writable,key};}
-function save(storage,context){if(!context.writable)return false;try{const raw=storage.getItem(context.key);let state=context.state;if(raw){const current=parseBackup(JSON.parse(raw),Boolean(state.is_test));state=mergeState(current,state);}const priorCount=raw?state.history.length:0;
+function save(storage,context){if(!context.writable)return false;try{const raw=storage.getItem(context.key);
+ let state=context.state;
+ const current=raw?parseBackup(JSON.parse(raw),Boolean(state.is_test)):null;
+ if(current)state=mergeState(current,state);
+ const priorCount=current?.history.length||0;
  if(state.history.length<priorCount)throw Error('履歴件数が減少する保存を停止しました。');
  if(raw){try{storage.setItem(context.key+'.safety-copy',raw);}catch(_){/* quota: retain original primary */}}
  storage.setItem(context.key,JSON.stringify(state));if(!raw){try{storage.setItem(context.key+'.safety-copy',JSON.stringify(state));}catch(_){/* primary is intact */}}context.state=state;return true;}catch(e){context.warning='端末に保存できません。記録をバックアップしてください。';return false;}}
 function commit(state,row){const r=normalize(row,state.is_test);if(!r)throw Error('回答記録が不正です。');if(!state.history.some(x=>uid(x)===uid(r)))state.history.push(r);return r;}
 function subjectStats(questions,history){const formal=history.filter(r=>!r.is_test);return [...new Set(questions.map(q=>q.subject))].map(subject=>{const qs=questions.filter(q=>q.subject===subject),ids=new Set(qs.map(q=>q.id)),available=qs.filter(q=>eligible(q)),valid=new Set(available.map(q=>q.id)),rows=formal.filter(r=>ids.has(r.id)),answered=new Set(rows.filter(r=>valid.has(r.id)).map(r=>r.id));return {subject,available:available.length,answered:answered.size,attempts:rows.length,correct:rows.filter(r=>r.correct).length,rate:rows.length?rows.filter(r=>r.correct).length/rows.length:null};});}
 function ledger(questions,state,version){if(state.is_test)throw Error('動作確認記録は学習台帳に出力しません。');const map=new Map(questions.map(q=>[q.id,q])),rows=state.history.filter(r=>!r.is_test).map(r=>({record_uid:uid(r),question_id:r.id,subject:map.get(r.id)?.subject||'旧版・未対応',field:map.get(r.id)?.field||'',answered_at:r.at,selected_choice:r.selected,correct:r.correct,original_correct:r.original_correct,scoring_basis:r.basis==='official'?'official_verified':'material_verified_not_official',attempt_type:r.attempt_type,session_id:r.session,is_test:false,data_revision:r.data_revision||'legacy',selected_choice_text:map.get(r.id)?.choices?.[r.selected-1]??null,accepted_answer_choices:map.get(r.id)?.accepted_answers??null,accepted_answer_texts:(map.get(r.id)?.accepted_answers??[]).map(n=>map.get(r.id)?.choices?.[n-1]??null),wrong_selected_choice:r.correct?null:r.selected,wrong_selected_text:r.correct?null:(map.get(r.id)?.choices?.[r.selected-1]??null)}));const subjects={};for(const r of rows){const s=subjects[r.subject]||(subjects[r.subject]={attempts:0,correct:0,incorrect:0});s.attempts++;r.correct?s.correct++:s.incorrect++;}const sessions=(state.sessions||[]).filter(s=>s&&!s.is_test&&typeof s.id==='string').map(s=>({session_id:s.id,started_at:s.started_at||null,finished_at:s.finished_at||null,elapsed_ms:Number.isFinite(s.elapsed_ms)?Math.max(0,s.elapsed_ms):null,completed:s.completed===true,end_reason:s.end_reason||null,mode:s.mode||null,attempt_type:s.attempt_type||null,answer_count:s.answer_count??null,correct_count:s.correct_count??null}));const daily={};for(const r of rows){const day=new Date(r.answered_at).toLocaleDateString('sv-SE');const d=daily[day]||(daily[day]={date:day,attempts:0,correct:0,incorrect:0,wrong_choices:{},subjects:{},elapsed_ms:0});d.attempts++;if(r.correct)d.correct++;else{d.incorrect++;const key=r.question_id+'|'+r.selected_choice;d.wrong_choices[key]=(d.wrong_choices[key]||0)+1;}const sub=d.subjects[r.subject]||(d.subjects[r.subject]={attempts:0,correct:0,incorrect:0});sub.attempts++;r.correct?sub.correct++:sub.incorrect++;}for(const s of sessions){if(s.elapsed_ms===null)continue;const date=new Date(s.started_at);if(!Number.isFinite(date.getTime()))continue;const day=date.toLocaleDateString('sv-SE');const d=daily[day]||(daily[day]={date:day,attempts:0,correct:0,incorrect:0,wrong_choices:{},subjects:{},elapsed_ms:0});d.elapsed_ms+=s.elapsed_ms;}const wrong_choice_counts={};for(const r of rows){if(r.correct)continue;const by=wrong_choice_counts[r.question_id]||(wrong_choice_counts[r.question_id]={});by[r.selected_choice]=(by[r.selected_choice]||0)+1;}return {schema:'yamato.kokushi.ledger.export.v1',app_version:'0.3-final',data_version:version,generated_at:new Date().toISOString(),source:'v03_final_formal_history_only',is_test:false,legacy_wrong_booklet_history_included:false,scoring_warning:'各回答時点の採点結果を保存。教材根拠と公式正答は区別する。同じrecord_uidを台帳に重複計上しない。',total_attempts:rows.length,subjects,subject_progress:subjectStats(questions,state.history),latest_confirmed_wrong_ids:[...latestWrong(state.history)],time_tracking_note:'完了・中断済みセッションのアプリ計測時間。無操作3分以降を除外。旧履歴や未終了セッションの時間は復元しない。日別時間はセッション開始日へ計上。',sessions,daily_summary:Object.values(daily).sort((a,b)=>a.date.localeCompare(b.date)),wrong_choice_counts,history:rows};}
-const api={KEY,TEST_KEY,LEGACY_KEY,eligible,grade,uid,normalize,mergeHistory,latestWrong,pool,shuffle,balancedSelect,empty,parseBackup,mergeState,load,save,commit,subjectStats,ledger};if(typeof module!=='undefined')module.exports=api;root.QuizCore=api;
+const api={KEY,TEST_KEY,LEGACY_KEY,eligible,grade,choiceOrder,uid,normalize,mergeHistory,latestWrong,pool,shuffle,balancedSelect,empty,parseBackup,mergeState,load,save,commit,subjectStats,ledger};if(typeof module!=='undefined')module.exports=api;root.QuizCore=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

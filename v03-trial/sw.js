@@ -1,9 +1,9 @@
 'use strict';
 // Network-first for app files; offline cache fallback. Does not modify study records.
 const PREFIX='yamato-kokushi-v03-trial-'+encodeURIComponent(new URL(self.registration.scope).pathname)+'-';
-const BUILD='yamato-subjects-861-20261109-5';
+const BUILD='yamato-v03-study-20261112-3';
 const CACHE=PREFIX+'final-'+BUILD;
-const FILES=['./index.html','./quiz-core.js','./app.js','./preferences.js','./wamodern-ui.js','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
+const FILES=['./index.html','./quiz-core.js','./app.js','./preferences.js','./wamodern-ui.js','./manifest.webmanifest','./icon-192.png','./icon-512.png','./icon.svg'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith(PREFIX)&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{
