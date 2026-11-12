@@ -31,7 +31,7 @@ function weakRender(){const a=weakness(),studied=a.filter(x=>x.attempts),checks=
  rows.sort((a,b)=>sort==='recent'?Date.parse(b.last||0)-Date.parse(a.last||0):sort==='subject'?a.q.subject.localeCompare(b.q.subject,'ja')||b.wrong-a.wrong:b.wrong-a.wrong||Date.parse(b.last||0)-Date.parse(a.last||0));
  const box=$('weak-list');box.replaceChildren();if(!rows.length)box.append(el('p','該当する記録はありません。'));for(const x of rows.slice(0,150)){const item=el('div',undefined,'weak-row'+(x.wrong>=3?' danger':''));item.append(el('b',(x.wrong>=3?'★ 要チェック · ':'')+x.q.id+' · '+x.q.subject+' / '+x.q.field));item.append(el('small',`誤答 ${x.wrong}回 ／ 正答 ${x.correct}回 ／ 直近 ${x.latest?'正解':'誤答'}`));item.append(el('p',x.q.question));box.append(item);}if(rows.length>150)box.append(el('p',`表示は150件まで（対象${rows.length}件）。`));$('check-start').disabled=!checks.some(x=>C.eligible(x.q));$('ledger-preview').textContent=ledgerText();}
 function startChecks(){if(active){notify('途中の学習を終了してから要チェック復習を開始してください。');return;}const ids=C.shuffle(weakness().filter(x=>x.wrong>=3&&C.eligible(x.q)).map(x=>x.q.id));if(!ids.length)return;const id=Date.now().toString(36)+'-check';active={id,mode:'textbook',shuffle_choices:true,attempt_type:'retest',ids,index:0,phase:'question',selected:null,results:[],started_at:new Date().toISOString(),last_activity_at:Date.now(),accounted_idle_ms:0,elapsed_ms:0};context.state.sessions.push({id,attempt_type:'retest',mode:'textbook',started_at:active.started_at,completed:false,is_test:context.state.is_test});persist();screen('quiz');render();}
-function update(){const rows=C.pool(Q,selections());$('available').textContent=rows.length+'問';$('official-count').textContent=Q.filter(q=>C.eligible(q)).length;$('held-count').textContent=Q.filter(q=>!C.eligible(q)).length;$('history-count').textContent=context.state.history.length;$('wrong-count').textContent=C.pool(Q,{history:context.state.history,wrong:true,includeTests:context.state.is_test}).length;$('start').disabled=!rows.length;$('wrong-start').disabled=$('mode').value==='read'||!C.pool(Q,selections(true)).length;$('mode-note').textContent=$('mode').value==='official'?'公式正答を確認し、現在も採点対象の問題です。':$('mode').value==='textbook'?'公式原本・正答を照合した問題と、教材正答を旧監査の独立根拠で確認した問題を採点します。根拠の区分は各問題に表示します。':'採点保留の問題と、その保留理由を確認できます。';$('test-indicator').hidden=!context.state.is_test;$('resume-study').hidden=!active||active.index>=active.ids.length;stats();studyStats();weakRender();}
+function update(){const rows=C.pool(Q,selections());$('available').textContent=rows.length+'問';$('official-count').textContent=Q.filter(q=>C.eligible(q)).length;$('held-count').textContent=Q.filter(q=>!C.eligible(q)).length;$('history-count').textContent=context.state.history.length;$('wrong-count').textContent=C.pool(Q,{history:context.state.history,wrong:true,includeTests:context.state.is_test}).length;$('start').disabled=!rows.length;$('wrong-start').disabled=$('mode').value==='read'||!C.pool(Q,selections(true)).length;$('mode-note').textContent=$('mode').value==='official'?'資料根拠の採点対象問題です。公式正答確認済みとは限りません。':$('mode').value==='textbook'?'全961問を選択・採点できます。15問は添付解説集に基づく暫定採点で、複数正答・医学的疑義を明示します。':'採点保留の問題と、その保留理由を確認できます。';$('test-indicator').hidden=!context.state.is_test;$('resume-study').hidden=!active||active.index>=active.ids.length;stats();studyStats();weakRender();}
 function source(q){const d=el('details');d.append(el('summary','出典・採点根拠'));d.append(el('p',q.source));d.append(el('p',q.answer_verification_level+' / '+q.scoring_status));if(q.final_note)d.append(el('p','旧版の注記：'+q.final_note));if(!q.explanation_verified)d.append(el('p','解説は参考表示です。4肢すべての解説の独立本文検証は未完です。','caution'));for(const e of (q.evidence||[])){const p=el('p',e.title+' · '+(e.location||''));if(/^https:\/\//.test(e.url||'')){const a=el('a',' 資料');a.href=e.url;a.target='_blank';a.rel='noopener noreferrer';p.append(a);}d.append(p);}return d;}
 function displayOrder(q){
  return active.shuffle_choices===true?C.choiceOrder(q.id,active.id):[1,2,3,4];
@@ -50,11 +50,12 @@ function showExplanation(q,order,result){
   box.append(panel);
  }
  if(scored&&C.eligible(q,active.mode)){
-  const original=q.accepted_answers[0];
-  box.append(el('p','正答 '+(order.indexOf(original)+1)+' · '+q.choices[original-1],'answer-key'));
+  const answers=q.accepted_answers.map(original=>(order.indexOf(original)+1)+' · '+q.choices[original-1]);
+  box.append(el('p','正答 '+answers.join(' ／ '),'answer-key'));
  }else if(scored){
   box.append(el('p','回答時点の採点結果を表示しています。現在は採点保留です。'));
  }
+ if(q.provisional_scoring)box.append(el('p','【暫定採点】'+(q.material_answer_note||'教材掲載の正答番号に基づく判定です。医学的・原本との独立照合は未完了です。'),'caution'));
  if(!q.scorable && q.audit_disposition)box.append(el('p','精査判定：'+q.audit_disposition,'caution'));
  if(!C.eligible(q,active.mode)&&q.hold_reason)box.append(el('p',q.hold_reason,'caution'));
  box.append(el('h3',scored?'正答の理由':'判定の根拠'));
@@ -113,7 +114,7 @@ function render(){
  if(done)showExplanation(q,order,active.results.find(r=>r.id===q.id));
  $('next').disabled=!done;
  $('next').textContent=done?(active.index+1===active.ids.length?'結果を見る':'次の問題へ'):'解説を見る';
- $('quiz-hint').textContent=!scorable?(done?'採点保留のため正誤は記録しません。':'採点保留です。選択肢を選ぶと解説を表示します（正誤は記録しません）。'):done?'正答の理由と国試で覚えるポイントを確認できます。':'選択肢を一つタップすると自動採点します。';
+ $('quiz-hint').textContent=!scorable?(done?'採点対象外の閲覧モードです。':'採点対象外の閲覧モードです。'):done?'正答の理由と国試で覚えるポイントを確認できます。':'選択肢を一つタップすると自動採点します。';
 }
 function begin(wrong){
  if(active){notify('途中の学習を再開するか、終了してから開始してください。');return;}
@@ -139,7 +140,7 @@ function commit(choice){
  if(!q)return;
  const scorable=active.mode!=='read'&&C.eligible(q,active.mode);
  active.selected=Number.isInteger(choice)?choice:null;
- const r={record_uid:active.id+'|'+q.id+'|'+active.index,id:q.id,selected:active.selected,correct:scorable?C.grade(q,choice):null,at:new Date().toISOString(),session:active.id,basis:q.official_answer_verified?'official':'textbook',attempt_type:active.attempt_type,is_test:context.state.is_test,data_revision:D.data_revision};
+ const r={record_uid:active.id+'|'+q.id+'|'+active.index,id:q.id,selected:active.selected,correct:scorable?C.grade(q,choice):null,at:new Date().toISOString(),session:active.id,basis:q.official_answer_verified?'official':q.provisional_scoring?'provisional':'textbook',attempt_type:active.attempt_type,is_test:context.state.is_test,data_revision:D.data_revision};
  active.results.push(r);
  if(scorable)C.commit(context.state,r);
  active.phase='answer';
