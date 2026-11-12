@@ -40,6 +40,7 @@ function showExplanation(q,order,result){
  const box=$('feedback');
  const scored=typeof result?.correct==='boolean';
  box.append(el('h2',scored?(result.correct?'正解':'不正解'):'採点保留'));
+ if(!scored&&Number.isInteger(active.selected))box.append(el('p','選択した肢 '+(order.indexOf(active.selected)+1)+' · '+q.choices[active.selected-1]+'（正誤判定なし）','answer-key'));
  if(scored && !result.correct && C.eligible(q,active.mode) && Number.isInteger(active.selected)){
   const selected=active.selected;
   const panel=el('section',undefined,'mistake-review');
@@ -101,7 +102,7 @@ function render(){
   b.append(el('span',String(i+1),'number'),el('span',q.choices[original-1]));
   b.setAttribute('aria-pressed',String(active.selected===original));
   if(active.selected===original)b.classList.add('selected');
-  b.disabled=done||!scorable;
+  b.disabled=done;
   if(done&&scorable&&q.accepted_answers.includes(original))b.classList.add('correct');
   b.onclick=()=>commit(original);
   $('choices').append(b);
@@ -110,9 +111,9 @@ function render(){
  $('feedback').hidden=!done;
  $('source').replaceChildren();
  if(done)showExplanation(q,order,active.results.find(r=>r.id===q.id));
- $('next').disabled=!done&&scorable;
+ $('next').disabled=!done;
  $('next').textContent=done?(active.index+1===active.ids.length?'結果を見る':'次の問題へ'):'解説を見る';
- $('quiz-hint').textContent=!scorable?'この問題は採点しません。':done?'正答の理由と国試で覚えるポイントを確認できます。':'選択肢を一つタップすると自動採点します。';
+ $('quiz-hint').textContent=!scorable?(done?'採点保留のため正誤は記録しません。':'採点保留です。選択肢を選ぶと解説を表示します（正誤は記録しません）。'):done?'正答の理由と国試で覚えるポイントを確認できます。':'選択肢を一つタップすると自動採点します。';
 }
 function begin(wrong){
  if(active){notify('途中の学習を再開するか、終了してから開始してください。');return;}
@@ -137,7 +138,7 @@ function commit(choice){
  const q=qmap.get(active.ids[active.index]);
  if(!q)return;
  const scorable=active.mode!=='read'&&C.eligible(q,active.mode);
- active.selected=scorable?choice:null;
+ active.selected=Number.isInteger(choice)?choice:null;
  const r={record_uid:active.id+'|'+q.id+'|'+active.index,id:q.id,selected:active.selected,correct:scorable?C.grade(q,choice):null,at:new Date().toISOString(),session:active.id,basis:q.official_answer_verified?'official':'textbook',attempt_type:active.attempt_type,is_test:context.state.is_test,data_revision:D.data_revision};
  active.results.push(r);
  if(scorable)C.commit(context.state,r);
